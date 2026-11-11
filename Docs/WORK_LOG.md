@@ -61,7 +61,7 @@ The native control tool refused access to `com.openai.codex` for safety. Codex's
 
 ## Final verification
 
-The parent ran all 22 XCTest cases with zero failures. The release app passed strict signature verification after installation at `/Users/isaacallport/Applications/Agent Spotlight.app`.
+The parent ran all 22 XCTest cases with zero failures. The release app passed strict signature verification after installation at `~/Applications/Agent Spotlight.app`.
 
 Native control verified initial search-field focus, typed message searches, Codex and Cursor filters, clear search, visible arrow-key selection, GUI chat names, and the registered shortcut from Finder and Cursor. Return opened Cursor's exact selected conversation, confirmed by its selected chat tab and transcript. The panel was left on All chats with an empty search.
 

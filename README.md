@@ -2,6 +2,12 @@
 
 Search Codex and Cursor chats from a native SwiftUI panel. Press **⌥⌘Space** from any app. Type words from a title, project, or message. Recent activity comes first, followed by the newest chats.
 
+## Download v1.0
+
+Download the macOS app ZIP from [Releases](https://github.com/Caasitroplla/agent-spotlight/releases). Extract it, move **Agent Spotlight.app** to Applications, and open it. The app stays in the menu bar.
+
+The v1.0 download requires an Apple Silicon Mac running macOS 14 or later. Intel users can build from source on their Mac. The downloadable app is ad-hoc signed and is not notarized with Apple. macOS may block the download. Building from source is an alternative.
+
 ## Build and launch
 
 Requires macOS 14 or later and the Swift command-line tools.
@@ -13,7 +19,7 @@ open 'dist/Agent Spotlight.app'
 
 The app lives in the menu bar. You can move the built app to your Applications folder. The shortcut does not require Accessibility permission. If another app owns the shortcut, the panel shows an error and the menu bar still opens search.
 
-Use the arrow keys to select a result and Return to open its chat. Escape closes the panel. **⌘⇧C** copies the selected chat's link. The app filters select All chats, Codex, or Cursor. The archive button includes or excludes archived chats. Subagent chats stay hidden from the panel.
+Use the arrow keys to select a result and Return to open its chat. Escape closes the panel. **⌘⇧C** copies the selected chat's link. The app filters select All chats, Codex, or Cursor. The archive button includes or excludes archived chats. Subagent chats and untitled Codex or Cursor chats stay hidden from the panel.
 
 The app refreshes when you open the panel and every 30 seconds while it runs. Initial indexing starts with titles, then reads message histories from newest to oldest. The footer shows progress and unavailable message histories.
 
