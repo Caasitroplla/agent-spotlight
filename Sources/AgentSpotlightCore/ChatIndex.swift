@@ -66,8 +66,8 @@ public actor ChatIndex {
     }
 
     public func search(_ query: SearchQuery) throws -> [ChatRecord] {
-        var conditions: [String] = []
-        var values: [SQLValue] = []
+        var conditions = ["lower(trim(c.title)) NOT IN (?,?,?)"]
+        var values: [SQLValue] = [.text(""), .text("untitled codex chat"), .text("untitled cursor chat")]
         let expression = query.ftsExpression
         if expression == nil && !query.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { return [] }
         if let source = query.source { conditions.append("c.source=?"); values.append(.text(source.rawValue)) }
