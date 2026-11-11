@@ -189,7 +189,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
         statusItem.button?.image = NSImage(systemSymbolName: "sparkle.magnifyingglass", accessibilityDescription: "Agent Spotlight")
         let menu = NSMenu()
-        let search = NSMenuItem(title: "Search chats    ⌥⌘Space", action: #selector(show), keyEquivalent: ""); search.target = self; menu.addItem(search)
+        let search = NSMenuItem(title: "Search chats", action: #selector(show), keyEquivalent: "␣")
+        search.keyEquivalentModifierMask = [.option, .command]
+        search.target = self; menu.addItem(search)
         let refresh = NSMenuItem(title: "Refresh history", action: #selector(refresh), keyEquivalent: "r"); refresh.target = self; menu.addItem(refresh)
         menu.addItem(.separator())
         let quit = NSMenuItem(title: "Quit Agent Spotlight", action: #selector(quit), keyEquivalent: "q"); quit.target = self; menu.addItem(quit)
@@ -199,7 +201,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         let main = NSMenu()
         let application = NSMenuItem()
         let menu = NSMenu(title: "Agent Spotlight")
-        let search = NSMenuItem(title: "Search chats", action: #selector(show), keyEquivalent: ""); search.target = self; menu.addItem(search)
+        let search = NSMenuItem(title: "Search chats", action: #selector(show), keyEquivalent: "␣")
+        search.keyEquivalentModifierMask = [.option, .command]
+        search.target = self; menu.addItem(search)
         let refresh = NSMenuItem(title: "Refresh history", action: #selector(refresh), keyEquivalent: "r"); refresh.target = self; menu.addItem(refresh)
         menu.addItem(.separator())
         let quit = NSMenuItem(title: "Quit Agent Spotlight", action: #selector(quit), keyEquivalent: "q"); quit.target = self; menu.addItem(quit)
