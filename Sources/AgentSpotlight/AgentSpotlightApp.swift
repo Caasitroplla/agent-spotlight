@@ -540,6 +540,13 @@ struct SearchField: NSViewRepresentable {
     let focusToken: Int
     let placeholder: String
     let label: String
+    private static let inputFont = NSFont.systemFont(ofSize: 24, weight: .regular)
+    private var attributedPlaceholder: NSAttributedString {
+        NSAttributedString(string: placeholder, attributes: [
+            .font: Self.inputFont,
+            .foregroundColor: NSColor.white.withAlphaComponent(0.35)
+        ])
+    }
     func makeCoordinator() -> Coordinator { Coordinator(text: $text) }
     func makeNSView(context: Context) -> NSTextField {
         let field = NSTextField()
@@ -547,9 +554,9 @@ struct SearchField: NSViewRepresentable {
         field.isBordered = false
         field.drawsBackground = false
         field.focusRingType = .none
-        field.font = NSFont.systemFont(ofSize: 24)
+        field.font = Self.inputFont
         field.textColor = .white
-        field.placeholderAttributedString = NSAttributedString(string: placeholder, attributes: [.foregroundColor: NSColor.white.withAlphaComponent(0.35)])
+        field.placeholderAttributedString = attributedPlaceholder
         field.usesSingleLineMode = true
         field.lineBreakMode = .byTruncatingTail
         field.setAccessibilityLabel(label)
@@ -557,7 +564,7 @@ struct SearchField: NSViewRepresentable {
     }
     func updateNSView(_ field: NSTextField, context: Context) {
         context.coordinator.text = $text
-        field.placeholderAttributedString = NSAttributedString(string: placeholder, attributes: [.foregroundColor: NSColor.white.withAlphaComponent(0.35)])
+        field.placeholderAttributedString = attributedPlaceholder
         field.setAccessibilityLabel(label)
         if field.stringValue != text { field.stringValue = text }
         if context.coordinator.focusToken != focusToken {
