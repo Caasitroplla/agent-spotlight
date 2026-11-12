@@ -23,6 +23,7 @@ final class SearchModel: ObservableObject {
         didSet { settings.save(to: .standard) }
     }
     @Published var openingChat = false
+    @Published var modelDefaults: [ChatSource: AppModelDefault] = [:]
     var showSettings: (() -> Void)?
 
     @Published var source: ChatSource? { didSet { scheduleSearch() } }
@@ -38,6 +39,8 @@ final class SearchModel: ObservableObject {
     private var refreshTask: Task<Void, Never>?
     private var pollTask: Task<Void, Never>?
     private var generation = 0
+    private let modelDefaultsReader = ModelDefaultsReader()
+    private var modelDefaultsTask: Task<Void, Never>?
 
     init() {
         do { index = try ChatIndex() }
@@ -66,8 +69,21 @@ final class SearchModel: ObservableObject {
     func selectMode(_ selected: LauncherMode) {
         mode = selected
         focusToken += 1
+        refreshModelDefaults()
         if selected == .search { scheduleSearch(immediate: true) }
         else { searchTask?.cancel() }
+    }
+
+    func modelDefault(for source: ChatSource) -> AppModelDefault {
+        modelDefaults[source] ?? .unknown("Reading saved app defaults…")
+    }
+
+    func refreshModelDefaults() {
+        guard modelDefaultsTask == nil else { return }
+        modelDefaultsTask = Task {
+            modelDefaults = await modelDefaultsReader.read()
+            modelDefaultsTask = nil
+        }
     }
 
     func submit() {
@@ -256,6 +272,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     @objc func quit() { NSApp.terminate(nil) }
     @objc func openSettings() {
         hide()
+        model.refreshModelDefaults()
         if settingsWindow == nil {
             let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 520, height: 560), styleMask: [.titled, .closable], backing: .buffered, defer: false)
             window.title = "Agent Spotlight Settings"
@@ -417,6 +434,21 @@ struct SearchView: View {
                     Text(model.mode.title).font(.system(size: 17, weight: .medium))
                     Text("Type above. Your default prompt is added below.").font(.system(size: 12)).foregroundStyle(.secondary)
                 }
+            }
+            if model.settings.showModelDefaults, let source = model.mode.source {
+                let saved = model.modelDefault(for: source)
+                VStack(alignment: .leading, spacing: 5) {
+                    HStack {
+                        Text("Saved app default").foregroundStyle(.secondary)
+                        Text(saved.title).fontWeight(.medium).textSelection(.enabled)
+                        Spacer()
+                        Button { model.refreshModelDefaults() } label: { Image(systemName: "arrow.clockwise") }
+                            .buttonStyle(.plain).accessibilityLabel("Refresh model defaults")
+                    }.font(.system(size: 12))
+                    Text(saved.note).font(.system(size: 10)).foregroundStyle(.secondary)
+                }
+                .padding(10).background(.white.opacity(0.045), in: RoundedRectangle(cornerRadius: 7))
+                .accessibilityElement(children: .contain)
             }
             HStack {
                 Text("PROMPT PREVIEW").font(.system(size: 10, weight: .semibold)).tracking(1).foregroundStyle(.secondary)

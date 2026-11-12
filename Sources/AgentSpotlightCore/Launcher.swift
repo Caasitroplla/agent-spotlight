@@ -25,6 +25,7 @@ public struct LauncherSettings: Codable, Equatable, Sendable {
     public var defaultMode: LauncherMode = .search
     public var cursorPrefix = "/poteto_mode"
     public var codexPrefix = "/poteto_mode"
+    public var showModelDefaults = true
 
     public init() {}
 
@@ -67,7 +68,7 @@ public struct LauncherSettings: Codable, Equatable, Sendable {
     }
 
     private enum CodingKeys: String, CodingKey {
-        case shortcutModes, defaultMode, cursorPrefix, codexPrefix
+        case shortcutModes, defaultMode, cursorPrefix, codexPrefix, showModelDefaults
     }
 
     public init(from decoder: Decoder) throws {
@@ -77,6 +78,7 @@ public struct LauncherSettings: Codable, Equatable, Sendable {
         defaultMode = try values.decodeIfPresent(LauncherMode.self, forKey: .defaultMode) ?? .search
         cursorPrefix = try values.decodeIfPresent(String.self, forKey: .cursorPrefix) ?? "/poteto_mode"
         codexPrefix = try values.decodeIfPresent(String.self, forKey: .codexPrefix) ?? "/poteto_mode"
+        showModelDefaults = try values.decodeIfPresent(Bool.self, forKey: .showModelDefaults) ?? true
     }
 }
 

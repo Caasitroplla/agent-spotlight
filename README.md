@@ -2,6 +2,8 @@
 
 Search Codex and Cursor chats or start a new chat from a native SwiftUI panel. Press **⌥⌘Space** from any app. Type words from a title, project, or message. Recent activity comes first, followed by the newest chats.
 
+![Agent Spotlight over a macOS desktop wallpaper, showing a new Cursor prompt and its saved model default](Docs/images/agent-spotlight-desktop.png)
+
 ## Download v1.0
 
 Download the macOS app ZIP from [Releases](https://github.com/Caasitroplla/agent-spotlight/releases). Extract it, move **Agent Spotlight.app** to Applications, and open it. The app stays in the menu bar.
@@ -28,6 +30,10 @@ With the panel open, press **⌘1** to search, **⌘2** for a new Cursor chat, o
 In a new-chat mode, type your prompt in the input. The preview shows your default prompt followed by what you type. Press Return or click the open button to open the draft in the destination app. Review and send it there.
 
 Open **Settings** with the gear button, **⌘,**, or the menu bar. Choose the mode that opens with the panel, swap the three shortcut mappings, and edit each app's default prompt. Both start with `/poteto_mode`. Clear a default prompt to use only your typed text. Settings save automatically. Drafts stay in memory for the current app session.
+
+Each compose mode shows the **Saved app default** model, including reasoning effort and Fast mode when available. Defaults refresh when you switch modes or open Settings. Use **Refresh model defaults** to read them again. Settings also lets you hide this display. Model choices remain controlled by Cursor and Codex.
+
+Codex's label reads its user `config.toml`. Cursor's label reads its saved composer configuration. Project, chat, managed policy, or unsaved app settings can override these values, so the label does not guarantee the final chat's model. If settings cannot be read or interpreted, the label says **Check in app**. Active Codex profiles and Cursor's automatic new-chat model reset also show this fallback. Neither source store is modified.
 
 New chats use the documented [Cursor prompt link](https://prod.cursor.com/docs/reference/deeplinks) and [Codex new-chat link](https://learn.chatgpt.com/docs/reference/commands). These links fill the destination composer without sending the prompt. Cursor links have a 10,000-character limit after encoding. The panel retains your draft if an app is missing or opening fails.
 

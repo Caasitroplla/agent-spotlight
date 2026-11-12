@@ -24,6 +24,20 @@ struct LauncherSettingsView: View {
                     .font(.system(size: 11)).foregroundStyle(.secondary)
             } header: { Text("Mode shortcuts") }
             Section {
+                Toggle("Show saved model defaults in the launcher", isOn: $model.settings.showModelDefaults)
+                ForEach(ChatSource.allCases, id: \.self) { source in
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("\(source.displayName) · \(model.modelDefault(for: source).title)")
+                            .font(.system(size: 12, weight: .medium)).textSelection(.enabled)
+                        Text(model.modelDefault(for: source).note)
+                            .font(.system(size: 11)).foregroundStyle(.secondary)
+                    }
+                }
+                Button("Refresh model defaults") { model.refreshModelDefaults() }
+                Text("Read from each app's saved settings. Change the model in Cursor or Codex. App settings are never changed here.")
+                    .font(.system(size: 11)).foregroundStyle(.secondary)
+            } header: { Text("Models") }
+            Section {
                 prefixEditor("Cursor default prompt", text: $model.settings.cursorPrefix)
                 prefixEditor("Codex default prompt", text: $model.settings.codexPrefix)
                 Text("Added before every new prompt. Leave blank to use only what you type. Changes save automatically.")
