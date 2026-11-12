@@ -16,6 +16,15 @@ struct AgentSpotlightApp {
 @MainActor
 final class SearchModel: ObservableObject {
     @Published var query = "" { didSet { scheduleSearch() } }
+    @Published var cursorDraft = ""
+    @Published var codexDraft = ""
+    @Published var mode: LauncherMode = .search
+    @Published var settings = LauncherSettings.load(from: .standard) {
+        didSet { settings.save(to: .standard) }
+    }
+    @Published var openingChat = false
+    var showSettings: (() -> Void)?
+
     @Published var source: ChatSource? { didSet { scheduleSearch() } }
     @Published var includeArchived = true { didSet { scheduleSearch() } }
     @Published var results: [ChatRecord] = []
@@ -34,6 +43,57 @@ final class SearchModel: ObservableObject {
         do { index = try ChatIndex() }
         catch { index = nil; self.error = "The search index could not be opened. \(error)" }
     }
+    var inputText: String {
+        get {
+            switch mode {
+            case .search: return query
+            case .cursor: return cursorDraft
+            case .codex: return codexDraft
+            }
+        }
+        set {
+            switch mode {
+            case .search: query = newValue
+            case .cursor: cursorDraft = newValue
+            case .codex: codexDraft = newValue
+            }
+        }
+    }
+    var promptPreview: String { settings.prompt(for: mode, draft: inputText) }
+    var inputPlaceholder: String { mode == .search ? "Search your agent chats" : "Type a prompt for \(mode.source!.displayName)" }
+    var inputLabel: String { mode == .search ? "Search agent chats" : "\(mode.source!.displayName) prompt" }
+
+    func selectMode(_ selected: LauncherMode) {
+        mode = selected
+        focusToken += 1
+        if selected == .search { scheduleSearch(immediate: true) }
+        else { searchTask?.cancel() }
+    }
+
+    func submit() {
+        guard !openingChat else { return }
+        guard mode != .search else { openSelected(); return }
+        do {
+            let request = NewChatRequest(mode: mode, prompt: promptPreview)
+            let url = try request.deepLink()
+            let bundle = mode == .cursor ? "com.todesktop.230313mzl4w4u92" : "com.openai.codex"
+            guard let application = NSWorkspace.shared.urlForApplication(withBundleIdentifier: bundle) else {
+                error = "\(mode.source!.displayName) is not installed. Install it, then try again. Your draft is still here."
+                return
+            }
+            error = nil
+            openingChat = true
+            let destination = mode.source!.displayName
+            NSWorkspace.shared.open([url], withApplicationAt: application, configuration: NSWorkspace.OpenConfiguration()) { [weak self] _, failure in
+                Task { @MainActor in
+                    guard let self else { return }
+                    self.openingChat = false
+                    if let failure { self.error = "Could not open \(destination). \(failure.localizedDescription)" }
+                    else { self.dismiss?() }
+                }
+            }
+        } catch { self.error = error.localizedDescription }
+    }
     var selected: ChatRecord? { results.first(where: { $0.id == selectedID }) ?? results.first }
     var sourceErrors: String? { status.providers.compactMap(\.error).first }
     var footerText: String {
@@ -43,8 +103,7 @@ final class SearchModel: ObservableObject {
         return "\(status.discovered.formatted()) chats · On this Mac"
     }
     func appear() {
-        focusToken += 1
-        scheduleSearch(immediate: true)
+        selectMode(settings.defaultMode)
         refresh()
     }
     func refresh() {
@@ -71,7 +130,7 @@ final class SearchModel: ObservableObject {
         generation += 1
         let requestedGeneration = generation
         searchTask?.cancel()
-        guard let index else { return }
+        guard mode == .search, let index else { return }
         let search = SearchQuery(text: query, source: source, includeArchived: includeArchived)
         searchTask = Task {
             if !immediate { try? await Task.sleep(for: .milliseconds(65)) }
@@ -88,12 +147,12 @@ final class SearchModel: ObservableObject {
         }
     }
     func move(_ offset: Int) {
-        guard !results.isEmpty else { return }
+        guard mode == .search, !results.isEmpty else { return }
         let current = results.firstIndex(where: { $0.id == selectedID }) ?? 0
         selectedID = results[min(max(current + offset, 0), results.count - 1)].id
     }
     func openSelected() {
-        guard let chat = selected, let url = chat.deepLink else { return }
+        guard mode == .search, let chat = selected, let url = chat.deepLink else { return }
         NSWorkspace.shared.open(url, configuration: NSWorkspace.OpenConfiguration()) { [weak self] _, failure in
             Task { @MainActor in
                 if let failure { self?.error = "Could not open \(chat.identity.source.displayName). \(failure.localizedDescription)" }
@@ -102,7 +161,7 @@ final class SearchModel: ObservableObject {
         }
     }
     func copyLink() {
-        guard let url = selected?.deepLink else { return }
+        guard mode == .search, let url = selected?.deepLink else { return }
         NSPasteboard.general.clearContents(); NSPasteboard.general.setString(url.absoluteString, forType: .string)
     }
 }
@@ -116,6 +175,7 @@ final class SearchPanel: NSPanel {
 final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     private let model = SearchModel()
     private var panel: SearchPanel!
+    private var settingsWindow: NSWindow?
     private var statusItem: NSStatusItem!
     private var hotKey: EventHotKeyRef?
     private var eventHandler: EventHandlerRef?
@@ -143,16 +203,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         panel.contentView = NSHostingView(rootView: SearchView(model: model))
         panel.appearance = NSAppearance(named: .darkAqua)
         model.dismiss = { [weak self] in self?.hide() }
+        model.showSettings = { [weak self] in self?.openSettings() }
         createMenu()
         createMainMenu()
         registerShortcut()
         keyboardMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
-            guard let self, self.panel.isVisible else { return event }
+            guard let self, self.panel.isKeyWindow, event.window === self.panel else { return event }
+            let modifiers = event.modifierFlags.intersection([.command, .option, .control, .shift])
+            if modifiers == .command {
+                let slots: [UInt16: Int] = [18: 0, 19: 1, 20: 2]
+                if let slot = slots[event.keyCode], let mode = self.model.settings.mode(forSlot: slot) {
+                    self.model.selectMode(mode)
+                    return nil
+                }
+            }
             switch event.keyCode {
             case 53: self.hide(); return nil
-            case 125: self.model.move(1); return nil
-            case 126: self.model.move(-1); return nil
-            case 36, 76: self.model.openSelected(); return nil
+            case 125 where self.model.mode == .search: self.model.move(1); return nil
+            case 126 where self.model.mode == .search: self.model.move(-1); return nil
+            case 36, 76: self.model.submit(); return nil
             case 8 where event.modifierFlags.contains([.command, .shift]): self.model.copyLink(); return nil
             default: return event
             }
@@ -185,6 +254,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     @objc func hide() { panel?.orderOut(nil) }
     @objc func refresh() { model.refresh() }
     @objc func quit() { NSApp.terminate(nil) }
+    @objc func openSettings() {
+        hide()
+        if settingsWindow == nil {
+            let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 520, height: 560), styleMask: [.titled, .closable], backing: .buffered, defer: false)
+            window.title = "Agent Spotlight Settings"
+            window.isReleasedWhenClosed = false
+            window.contentView = NSHostingView(rootView: LauncherSettingsView(model: model))
+            window.appearance = NSAppearance(named: .darkAqua)
+            window.center()
+            settingsWindow = window
+        }
+        NSApp.activate(ignoringOtherApps: true)
+        settingsWindow?.makeKeyAndOrderFront(nil)
+    }
     private func createMenu() {
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
         statusItem.button?.image = NSImage(systemSymbolName: "sparkle.magnifyingglass", accessibilityDescription: "Agent Spotlight")
@@ -193,6 +276,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         search.keyEquivalentModifierMask = [.option, .command]
         search.target = self; menu.addItem(search)
         let refresh = NSMenuItem(title: "Refresh history", action: #selector(refresh), keyEquivalent: "r"); refresh.target = self; menu.addItem(refresh)
+        let settings = NSMenuItem(title: "Settings…", action: #selector(openSettings), keyEquivalent: ",")
+        settings.target = self; menu.addItem(settings)
         menu.addItem(.separator())
         let quit = NSMenuItem(title: "Quit Agent Spotlight", action: #selector(quit), keyEquivalent: "q"); quit.target = self; menu.addItem(quit)
         statusItem.menu = menu
@@ -205,6 +290,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         search.keyEquivalentModifierMask = [.option, .command]
         search.target = self; menu.addItem(search)
         let refresh = NSMenuItem(title: "Refresh history", action: #selector(refresh), keyEquivalent: "r"); refresh.target = self; menu.addItem(refresh)
+        let settings = NSMenuItem(title: "Settings…", action: #selector(openSettings), keyEquivalent: ",")
+        settings.target = self; menu.addItem(settings)
         menu.addItem(.separator())
         let quit = NSMenuItem(title: "Quit Agent Spotlight", action: #selector(quit), keyEquivalent: "q"); quit.target = self; menu.addItem(quit)
         application.submenu = menu
@@ -237,62 +324,83 @@ struct SearchView: View {
     var body: some View {
         VStack(spacing: 0) {
             HStack(spacing: 15) {
-                Image(systemName: "magnifyingglass").font(.system(size: 25, weight: .light)).foregroundStyle(.white.opacity(0.55))
-                SearchField(text: $model.query, focusToken: model.focusToken)
+                Image(systemName: model.mode == .search ? "magnifyingglass" : "square.and.pencil").font(.system(size: 25, weight: .light)).foregroundStyle(.white.opacity(0.55))
+                SearchField(text: Binding(get: { model.inputText }, set: { model.inputText = $0 }), focusToken: model.focusToken, placeholder: model.inputPlaceholder, label: model.inputLabel)
                     .frame(height: 34)
-                    .accessibilityLabel("Search agent chats")
-                if !model.query.isEmpty {
-                    Button { model.query = "" } label: { Image(systemName: "xmark.circle.fill").foregroundStyle(.white.opacity(0.35)) }.buttonStyle(.plain).accessibilityLabel("Clear search")
+                if !model.inputText.isEmpty {
+                    Button { model.inputText = "" } label: { Image(systemName: "xmark.circle.fill").foregroundStyle(.white.opacity(0.35)) }.buttonStyle(.plain).accessibilityLabel("Clear input")
                 }
                 Text("esc").font(.system(size: 11, weight: .medium, design: .monospaced)).foregroundStyle(.white.opacity(0.4)).padding(.horizontal, 6).padding(.vertical, 3).background(.white.opacity(0.05), in: RoundedRectangle(cornerRadius: 4))
             }.padding(.horizontal, 25).frame(height: 82)
             Divider().overlay(.white.opacity(0.04))
-            HStack(spacing: 6) {
-                filter("All chats", source: nil)
-                filter("Codex", source: .codex)
-                filter("Cursor", source: .cursor)
+            HStack(spacing: 7) {
+                ForEach(LauncherMode.allCases, id: \.self) { mode in
+                    Button { model.selectMode(mode) } label: {
+                        HStack(spacing: 6) {
+                            Text(mode.title)
+                            Text(model.settings.shortcut(for: mode)).font(.system(size: 10, design: .monospaced)).foregroundStyle(.secondary)
+                        }
+                        .font(.system(size: 11, weight: .medium)).padding(.horizontal, 10).padding(.vertical, 7)
+                        .foregroundStyle(model.mode == mode ? .white : .white.opacity(0.5))
+                        .background(model.mode == mode ? .white.opacity(0.1) : .clear, in: RoundedRectangle(cornerRadius: 6))
+                    }.buttonStyle(.plain)
+                }
                 Spacer()
-                Toggle(isOn: $model.includeArchived) { Image(systemName: "archivebox").font(.system(size: 13)) }
-                    .toggleStyle(.button).buttonStyle(.plain).foregroundStyle(model.includeArchived ? .white.opacity(0.65) : .white.opacity(0.25))
-                    .help("Include archived chats").accessibilityLabel("Include archived chats")
-                Text(model.query.isEmpty ? "RECENT" : "\(model.results.count) RESULTS")
-                    .font(.system(size: 10, weight: .semibold)).tracking(1).foregroundStyle(.white.opacity(0.3)).padding(.leading, 8)
-            }.padding(.horizontal, 20).frame(height: 44)
-            if let error = model.error ?? model.sourceErrors {
+                Button { model.showSettings?() } label: { Image(systemName: "gearshape") }
+                    .buttonStyle(.plain).foregroundStyle(.secondary).help("Settings · ⌘,").accessibilityLabel("Settings")
+            }.padding(.horizontal, 20).frame(height: 43)
+            if model.mode == .search {
+                HStack(spacing: 6) {
+                    filter("All chats", source: nil)
+                    filter("Codex", source: .codex)
+                    filter("Cursor", source: .cursor)
+                    Spacer()
+                    Toggle(isOn: $model.includeArchived) { Image(systemName: "archivebox").font(.system(size: 13)) }
+                        .toggleStyle(.button).buttonStyle(.plain).foregroundStyle(model.includeArchived ? .white.opacity(0.65) : .white.opacity(0.25))
+                        .help("Include archived chats").accessibilityLabel("Include archived chats")
+                    Text(model.query.isEmpty ? "RECENT" : "\(model.results.count) RESULTS")
+                        .font(.system(size: 10, weight: .semibold)).tracking(1).foregroundStyle(.white.opacity(0.3)).padding(.leading, 8)
+                }.padding(.horizontal, 20).frame(height: 38)
+            }
+            if let error = model.error ?? (model.mode == .search ? model.sourceErrors : nil) {
                 HStack { Image(systemName: "exclamationmark.triangle"); Text(error).lineLimit(2); Spacer() }
                     .font(.system(size: 11)).foregroundStyle(.orange.opacity(0.9)).padding(.horizontal, 24).padding(.vertical, 8)
             }
-            ScrollViewReader { proxy in
-                ScrollView {
-                    LazyVStack(spacing: 3) {
-                        if model.results.isEmpty {
-                            VStack(spacing: 12) {
-                                Image(systemName: model.status.refreshing ? "clock.arrow.circlepath" : "text.magnifyingglass").font(.system(size: 32, weight: .ultraLight))
-                                Text(model.status.refreshing ? "Finding your conversations" : "No chats found").font(.system(size: 16, weight: .medium))
-                                Text(model.query.isEmpty ? "Codex and Cursor history appears here." : "Try a title, project, or a phrase from a message.").font(.system(size: 12)).foregroundStyle(.secondary)
-                            }.foregroundStyle(.white.opacity(0.6)).frame(maxWidth: .infinity).frame(height: 290)
-                        } else {
-                            ForEach(model.results) { chat in
-                                ResultRow(chat: chat, selected: model.selectedID == chat.id)
-                                    .contentShape(Rectangle())
-                                    .onTapGesture { model.selectedID = chat.id; model.openSelected() }
-                                    .id(chat.id)
-                                    .accessibilityElement(children: .combine)
-                                    .accessibilityAddTraits(.isButton)
-                                    .accessibilityAction { model.selectedID = chat.id; model.openSelected() }
+            if model.mode == .search {
+                ScrollViewReader { proxy in
+                    ScrollView {
+                        LazyVStack(spacing: 3) {
+                            if model.results.isEmpty {
+                                VStack(spacing: 12) {
+                                    Image(systemName: model.status.refreshing ? "clock.arrow.circlepath" : "text.magnifyingglass").font(.system(size: 32, weight: .ultraLight))
+                                    Text(model.status.refreshing ? "Finding your conversations" : "No chats found").font(.system(size: 16, weight: .medium))
+                                    Text(model.query.isEmpty ? "Codex and Cursor history appears here." : "Try a title, project, or a phrase from a message.").font(.system(size: 12)).foregroundStyle(.secondary)
+                                }.foregroundStyle(.white.opacity(0.6)).frame(maxWidth: .infinity).frame(height: 290)
+                            } else {
+                                ForEach(model.results) { chat in
+                                    ResultRow(chat: chat, selected: model.selectedID == chat.id)
+                                        .contentShape(Rectangle())
+                                        .onTapGesture { model.selectedID = chat.id; model.openSelected() }
+                                        .id(chat.id)
+                                        .accessibilityElement(children: .combine)
+                                        .accessibilityAddTraits(.isButton)
+                                        .accessibilityAction { model.selectedID = chat.id; model.openSelected() }
+                                }
                             }
-                        }
-                    }.padding(.horizontal, 12).padding(.bottom, 10)
-                }.onChange(of: model.selectedID) { _, id in if let id { withAnimation(.easeOut(duration: 0.1)) { proxy.scrollTo(id, anchor: .center) } } }
+                        }.padding(.horizontal, 12).padding(.bottom, 10)
+                    }.onChange(of: model.selectedID) { _, id in if let id { withAnimation(.easeOut(duration: 0.1)) { proxy.scrollTo(id, anchor: .center) } } }
+                }
+            } else {
+                composePane
             }
             Divider().overlay(.white.opacity(0.04))
             HStack(spacing: 7) {
-                if model.status.refreshing { ProgressView().controlSize(.mini).scaleEffect(0.7) }
+                if model.status.refreshing && model.mode == .search { ProgressView().controlSize(.mini).scaleEffect(0.7) }
                 else { Image(systemName: "lock.fill").font(.system(size: 9)) }
-                Text(model.footerText).lineLimit(1)
+                Text(model.mode == .search ? model.footerText : "Opens a draft for you to review in \(model.mode.source!.displayName)").lineLimit(1)
                 Spacer()
-                shortcut("↑↓", "navigate")
-                shortcut("↵", "open chat")
+                if model.mode == .search { shortcut("↑↓", "navigate") }
+                shortcut("↵", model.mode == .search ? "open chat" : "open draft")
             }.font(.system(size: 10)).foregroundStyle(.white.opacity(0.36)).padding(.horizontal, 22).frame(height: 38)
         }
         .frame(width: 760, height: 548)
@@ -301,6 +409,37 @@ struct SearchView: View {
         .overlay(RoundedRectangle(cornerRadius: 18).strokeBorder(.white.opacity(0.14), lineWidth: 1))
         .preferredColorScheme(.dark)
     }
+    private var composePane: some View {
+        VStack(alignment: .leading, spacing: 15) {
+            HStack(spacing: 10) {
+                if let source = model.mode.source { Image(nsImage: AppIcons.icon(source)).resizable().frame(width: 29, height: 29) }
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(model.mode.title).font(.system(size: 17, weight: .medium))
+                    Text("Type above. Your default prompt is added below.").font(.system(size: 12)).foregroundStyle(.secondary)
+                }
+            }
+            HStack {
+                Text("PROMPT PREVIEW").font(.system(size: 10, weight: .semibold)).tracking(1).foregroundStyle(.secondary)
+                Spacer()
+                if !model.settings.prefix(for: model.mode).isEmpty { Text("Includes default prompt").font(.system(size: 10)).foregroundStyle(.secondary) }
+            }
+            ScrollView {
+                Text(model.promptPreview.isEmpty ? "Your prompt will appear here." : model.promptPreview)
+                    .font(.system(size: 13)).textSelection(.enabled)
+                    .foregroundStyle(model.promptPreview.isEmpty ? .secondary : .primary)
+                    .frame(maxWidth: .infinity, alignment: .topLeading).padding(14)
+            }.frame(maxWidth: .infinity, maxHeight: .infinity)
+                .background(.white.opacity(0.045), in: RoundedRectangle(cornerRadius: 9))
+                .accessibilityLabel("Complete prompt preview")
+            HStack {
+                Text("You send it from the destination app.").font(.system(size: 11)).foregroundStyle(.secondary)
+                Spacer()
+                Button(model.openingChat ? "Opening…" : "Open \(model.mode.title.lowercased())") { model.submit() }
+                    .buttonStyle(.borderedProminent).disabled(model.openingChat)
+            }
+        }.padding(24).frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
     private func filter(_ title: String, source: ChatSource?) -> some View {
         Button { model.source = source } label: {
             HStack(spacing: 5) { if let source { Image(nsImage: AppIcons.icon(source)).resizable().frame(width: 13, height: 13) }; Text(title) }
@@ -367,6 +506,8 @@ struct VisualEffect: NSViewRepresentable {
 struct SearchField: NSViewRepresentable {
     @Binding var text: String
     let focusToken: Int
+    let placeholder: String
+    let label: String
     func makeCoordinator() -> Coordinator { Coordinator(text: $text) }
     func makeNSView(context: Context) -> NSTextField {
         let field = NSTextField()
@@ -376,14 +517,16 @@ struct SearchField: NSViewRepresentable {
         field.focusRingType = .none
         field.font = NSFont.systemFont(ofSize: 24)
         field.textColor = .white
-        field.placeholderAttributedString = NSAttributedString(string: "Search your agent chats", attributes: [.foregroundColor: NSColor.white.withAlphaComponent(0.35)])
+        field.placeholderAttributedString = NSAttributedString(string: placeholder, attributes: [.foregroundColor: NSColor.white.withAlphaComponent(0.35)])
         field.usesSingleLineMode = true
         field.lineBreakMode = .byTruncatingTail
-        field.setAccessibilityLabel("Search agent chats")
+        field.setAccessibilityLabel(label)
         return field
     }
     func updateNSView(_ field: NSTextField, context: Context) {
         context.coordinator.text = $text
+        field.placeholderAttributedString = NSAttributedString(string: placeholder, attributes: [.foregroundColor: NSColor.white.withAlphaComponent(0.35)])
+        field.setAccessibilityLabel(label)
         if field.stringValue != text { field.stringValue = text }
         if context.coordinator.focusToken != focusToken {
             context.coordinator.focusToken = focusToken
