@@ -24,6 +24,7 @@ final class SearchModel: ObservableObject {
     }
     @Published var openingChat = false
     @Published var modelDefaults: [ChatSource: AppModelDefault] = [:]
+    @Published var runLocations: [ChatSource: AppRunLocation] = [:]
     var showSettings: (() -> Void)?
 
     @Published var source: ChatSource? { didSet { scheduleSearch() } }
@@ -82,8 +83,18 @@ final class SearchModel: ObservableObject {
         guard modelDefaultsTask == nil else { return }
         modelDefaultsTask = Task {
             modelDefaults = await modelDefaultsReader.read()
+            runLocations = await modelDefaultsReader.readRunLocations()
             modelDefaultsTask = nil
         }
+    }
+
+    func runLocation(for source: ChatSource) -> AppRunLocation {
+        runLocations[source] ?? (source == .codex ? .codexLocal : .unavailable)
+    }
+
+    func openCursorEnvironmentSettings() {
+        guard let url = URL(string: "cursor://anysphere.cursor-deeplink/settings/chat") else { return }
+        if !NSWorkspace.shared.open(url) { error = "Could not open Cursor Settings. Open Settings → Agents in Cursor to change Default Environment." }
     }
 
     func submit() {
@@ -435,17 +446,30 @@ struct SearchView: View {
                     Text("Type above. Your default prompt is added below.").font(.system(size: 12)).foregroundStyle(.secondary)
                 }
             }
-            if model.settings.showModelDefaults, let source = model.mode.source {
+            if let source = model.mode.source {
                 let saved = model.modelDefault(for: source)
+                let location = model.runLocation(for: source)
                 VStack(alignment: .leading, spacing: 5) {
                     HStack {
-                        Text("Saved app default").foregroundStyle(.secondary)
-                        Text(saved.title).fontWeight(.medium).textSelection(.enabled)
+                        if model.settings.showModelDefaults {
+                            Text("Saved app default").foregroundStyle(.secondary)
+                            Text(saved.title).fontWeight(.medium).textSelection(.enabled)
+                        } else {
+                            Text("Launch details").foregroundStyle(.secondary)
+                        }
                         Spacer()
                         Button { model.refreshModelDefaults() } label: { Image(systemName: "arrow.clockwise") }
-                            .buttonStyle(.plain).accessibilityLabel("Refresh model defaults")
+                            .buttonStyle(.plain).accessibilityLabel("Refresh app defaults")
                     }.font(.system(size: 12))
-                    Text(saved.note).font(.system(size: 10)).foregroundStyle(.secondary)
+                    if model.settings.showModelDefaults {
+                        Text(saved.note).font(.system(size: 10)).foregroundStyle(.secondary)
+                        Divider().padding(.vertical, 3)
+                    }
+                    HStack(spacing: 8) {
+                        Text("Run location").foregroundStyle(.secondary)
+                        Text(location.title).fontWeight(.medium).textSelection(.enabled)
+                    }.font(.system(size: 12))
+                    Text(location.note).font(.system(size: 10)).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
                 }
                 .padding(10).background(.white.opacity(0.045), in: RoundedRectangle(cornerRadius: 7))
                 .accessibilityElement(children: .contain)

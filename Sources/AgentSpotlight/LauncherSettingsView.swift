@@ -31,12 +31,17 @@ struct LauncherSettingsView: View {
                             .font(.system(size: 12, weight: .medium)).textSelection(.enabled)
                         Text(model.modelDefault(for: source).note)
                             .font(.system(size: 11)).foregroundStyle(.secondary)
+                        Text("Run location · \(model.runLocation(for: source).title)")
+                            .font(.system(size: 12, weight: .medium))
+                        Text(model.runLocation(for: source).note)
+                            .font(.system(size: 11)).foregroundStyle(.secondary)
                     }
                 }
-                Button("Refresh model defaults") { model.refreshModelDefaults() }
+                Button("Refresh app defaults") { model.refreshModelDefaults() }
+                Button("Change Cursor's default environment…") { model.openCursorEnvironmentSettings() }
                 Text("Read from each app's saved settings. Change the model in Cursor or Codex. App settings are never changed here.")
                     .font(.system(size: 11)).foregroundStyle(.secondary)
-            } header: { Text("Models") }
+            } header: { Text("Models and run location") }
             Section {
                 prefixEditor("Cursor default prompt", text: $model.settings.cursorPrefix)
                 prefixEditor("Codex default prompt", text: $model.settings.codexPrefix)

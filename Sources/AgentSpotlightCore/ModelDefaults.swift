@@ -40,6 +40,17 @@ public actor ModelDefaultsReader {
         return [.codex: codex, .cursor: cursor]
     }
 
+    public func readRunLocations() -> [ChatSource: AppRunLocation] {
+        let cursor: AppRunLocation
+        do {
+            let database = try SQLite(url: paths.cursorRoot.appendingPathComponent("state.vscdb"))
+            let preference = try database.query("SELECT value FROM ItemTable WHERE key = ?", [.text("cursor/newAgentDefaultEnvironment")]).first?["value"]?.string
+            let target = (try? database.query("SELECT json_extract(value, '$.draftTarget') AS target FROM cursorDiskKV WHERE key = ?", [.text("composerData:empty-state-draft")]))?.first?["target"]?.string
+            cursor = AppRunLocation.fromCursor(preference: preference, draftTarget: target?.data(using: .utf8))
+        } catch { cursor = .unavailable }
+        return [.codex: .codexLocal, .cursor: cursor]
+    }
+
     static func codex(config: String) -> AppModelDefault {
         var values: [String: String] = [:]
         var multiline: String?
